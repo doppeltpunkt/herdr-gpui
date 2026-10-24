@@ -138,6 +138,9 @@ pub struct SidebarStyle {
     /// A colour per host, keyed by the host's display name, as `0xRRGGBB`.
     pub hosts: BTreeMap<String, u32>,
     pub overrides: SidebarOverrides,
+    /// `pinned_workspace`: the label of a workspace on this computer's Herdr
+    /// that gets its own row above the spaces list instead of a place in it.
+    pub pinned_workspace: Option<String>,
     pub select: SelectMode,
 }
 
@@ -150,6 +153,7 @@ impl Default for SidebarStyle {
             device_footer: DeviceFooter::default(),
             hosts: BTreeMap::new(),
             overrides: SidebarOverrides::default(),
+            pinned_workspace: None,
             select: SelectMode::default(),
         }
     }
@@ -182,6 +186,7 @@ pub(super) struct SidebarSettings {
     pub(super) hosts: BTreeMap<String, String>,
     pub(super) activity_bar: Option<bool>,
     pub(super) automations: Option<bool>,
+    pub(super) pinned_workspace: Option<String>,
 }
 
 impl SidebarSettings {
@@ -207,6 +212,13 @@ impl SidebarSettings {
             device_footer: self.device_footer,
             hosts,
             overrides: self.overrides,
+            // A blank label names no workspace.
+            pinned_workspace: self
+                .pinned_workspace
+                .as_deref()
+                .map(str::trim)
+                .filter(|label| !label.is_empty())
+                .map(str::to_owned),
             select: self.select,
         })
     }
@@ -246,6 +258,9 @@ impl<'de> Deserialize<'de> for SidebarSettings {
                         "activity_bar" => settings.activity_bar = Some(map.next_value()?),
                         "automations" => settings.automations = Some(map.next_value()?),
                         "hosts" => settings.hosts = map.next_value()?,
+                        "pinned_workspace" => {
+                            settings.pinned_workspace = Some(map.next_value()?);
+                        }
                         _ => {
                             map.next_value::<serde::de::IgnoredAny>()?;
                         }

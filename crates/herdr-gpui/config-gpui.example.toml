@@ -363,6 +363,12 @@ size = 12
 # the uncommitted-work probe's slow schedule: one checkout at a time, each at
 # most every 30 seconds while the window is active.
 # change_counts = "pr"
+# A workspace on this computer, by its label, that gets its own row at the
+# sidebar's top instead of a place in the spaces list: its status, and a
+# "needs you" mark while it is blocked. Clicking the row focuses it, or
+# creates an empty workspace with that label when none is open. Unset by
+# default.
+# pinned_workspace = "Butler"
 
 # The activity bar: an icon column at the window's left edge. Workspaces is
 # the sidebar beside the terminals; Orchestrator, Pull requests, and Issues

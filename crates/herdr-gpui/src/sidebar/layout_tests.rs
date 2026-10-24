@@ -67,6 +67,8 @@ mod pane_names;
 #[cfg(test)]
 mod picker_scroll;
 #[cfg(test)]
+mod pinned_workspace;
+#[cfg(test)]
 mod plain_folder_icon;
 #[cfg(test)]
 mod probe_bar;
