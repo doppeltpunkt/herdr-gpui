@@ -186,7 +186,8 @@ impl HerdrWindow {
             } else {
                 &endpoint.collapsed_repos
             };
-            let entries = visible_workspace_entries(&snapshot.workspaces, collapsed_repos);
+            let mut entries = visible_workspace_entries(&snapshot.workspaces, collapsed_repos);
+            self.unlist_pinned(endpoint_index, &snapshot.workspaces, &mut entries);
             let drag = self
                 .workspace_drag
                 .as_ref()
@@ -708,6 +709,7 @@ impl HerdrWindow {
             .bg(self.fill().panel(theme.sidebar_background()))
             .border_e(px(1.))
             .border_color(rgb(theme.active))
+            .children(self.pinned_row(look, width, indicators, cx))
             // Zero flex bases keep long workspace lists from displacing agents.
             .child(
                 div()

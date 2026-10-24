@@ -40,6 +40,7 @@ mod lock_access;
 mod missing_fonts;
 mod notification_settings;
 mod omarchy_theme;
+mod pinned_workspace;
 mod preferences;
 mod px0;
 mod remote;
