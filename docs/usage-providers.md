@@ -36,6 +36,33 @@ when its usage request fails, so a failure does not switch the shown account.
 SSH hosts need `python3` or `jq` to read the JSON sign-in; detection is skipped
 when neither parser is available.
 
+## Independent Claude Work account
+
+**Claude Work** (`claudework`) appears alongside the
+existing **Claude** provider (Personal). It reads `work.configDir` from the
+selected host's global `~/.pi/agent/claude-accounts.json` (or
+`$PI_CODING_AGENT_DIR/claude-accounts.json`). The directory must be an absolute POSIX path (macOS/Linux). No project-local
+account configuration is read. No additional provider settings are required;
+without a configured Work directory and sign-in, Work stays hidden.
+
+On macOS, Work uses `Claude Code-credentials-<hash>`, where `<hash>` is the
+first eight hex characters of SHA-256 of the NFC-normalized directory,
+matching Claude Code. Its file fallback and account metadata are confined
+to that directory. It never falls back to Personal credentials or email,
+changes logins, copies tokens, or refreshes tokens. Claude Code owns login
+and renewal. Request failures and last-good readings remain independent
+because Work has its own provider identity. If the global Work directory is
+reassigned to a different account, restart the app to clear the previous
+Work account's in-memory stale cache. `usage.hide_providers` can
+hide `claudework` normally.
+
+Both accounts have their own status-bar segment and panel entry. Work's
+segment includes a **Work** label; each provider's name is also available on
+hover. As with
+other services, a narrow window can hide segments that do not fit; the
+usage panel still lists both. This is quota display only: it does not select
+which account Pi or Claude Code uses for a conversation.
+
 ## The trait
 
 ```rust

@@ -517,7 +517,7 @@ size = 12
 # --- usage providers: generated from each provider's settings ---
 #
 # Found from the agent's own sign-in on the host, with nothing to set:
-#   codex, claude, kiro, doubao, pi
+#   codex, claude, claudework, kiro, doubao, pi
 #
 # OpenAI (openai)
 # [usage.providers.openai]

@@ -35,6 +35,8 @@ pub(crate) struct Meta {
     /// Lowercase ASCII, stable: config tables and saved choices use it.
     pub id: &'static str,
     pub name: &'static str,
+    /// Optional short status-bar label when an icon alone is ambiguous.
+    pub bar_label: Option<&'static str>,
     /// An embedded SVG asset path; None uses `icons/providers/<id>.svg` when
     /// it exists, else a generic mark.
     pub icon: Option<&'static str>,
@@ -50,11 +52,17 @@ impl Meta {
         Self {
             id,
             name,
+            bar_label: None,
             icon: None,
             dashboard: None,
             status_page: None,
             settings: &[],
         }
+    }
+
+    pub const fn bar_label(mut self, label: &'static str) -> Self {
+        self.bar_label = Some(label);
+        self
     }
 
     pub const fn icon(mut self, path: &'static str) -> Self {

@@ -138,6 +138,7 @@ impl HerdrWindow {
         let theme = &self.theme;
         let provider = reading.provider;
         let key = provider.id();
+        let (foreground, surface) = (theme.foreground, theme.surface);
         let bounds = Rc::new(Cell::new(Bounds::<Pixels>::default()));
         let painted = bounds.clone();
         let open = self.menu.page == Some(crate::menu::Page::Usage(provider));
@@ -157,6 +158,14 @@ impl HerdrWindow {
             .cursor_pointer()
             .hover(|s| s.bg(rgb(theme.active)))
             .when(open, |segment| segment.bg(rgb(theme.active)))
+            .tooltip(move |_, cx| {
+                cx.new(|_| Hint {
+                    text: provider.name().into(),
+                    foreground,
+                    surface,
+                })
+                .into()
+            })
             .child(
                 svg()
                     .path(provider.icon())
@@ -164,6 +173,14 @@ impl HerdrWindow {
                     .flex_none()
                     .text_color(rgb(theme.foreground)),
             )
+            .when_some(provider.service().meta().bar_label, |segment, label| {
+                segment.child(
+                    div()
+                        .debug_selector(move || format!("usage-{key}-label"))
+                        .flex_none()
+                        .child(label),
+                )
+            })
             .child(
                 canvas(|_, _, _| (), move |area, _, _, _| painted.set(area))
                     .absolute()

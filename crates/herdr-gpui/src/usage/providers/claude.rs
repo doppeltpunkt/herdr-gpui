@@ -110,12 +110,17 @@ fn signed_in(probe: &mut Probe) -> Option<Result<Report>> {
 /// such as one `sudo claude` left under `root` holding only MCP sign-ins, so
 /// the user's own item is asked for before any item of the service.
 pub(crate) fn keychain(probe: &mut Probe) -> Option<Secret> {
+    keychain_for(probe, KEYCHAIN)
+}
+
+/// A config-directory sign-in must never fall back to the default service.
+pub(super) fn keychain_for(probe: &mut Probe, service: &str) -> Option<Secret> {
     if !probe.is_macos() {
         return None;
     }
     let user = probe.env_text("USER");
     [user.as_deref(), None].into_iter().find_map(|account| {
-        let credentials = probe.keychain(KEYCHAIN, account)?;
+        let credentials = probe.keychain(service, account)?;
         probe.field(&credentials, &["claudeAiOauth", "accessToken"])?;
         Some(credentials)
     })

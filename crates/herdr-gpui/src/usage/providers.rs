@@ -17,6 +17,7 @@ pub(super) mod bedrock;
 pub(super) mod bifrost;
 pub(super) mod chutes;
 pub(super) mod claude;
+pub(super) mod claudework;
 pub(super) mod clawrouter;
 pub(super) mod clinepass;
 pub(super) mod codebuff;
