@@ -20,7 +20,9 @@ Laufend geführt. Branch: `merge/upstream-20261028`.
 - [x] Merge `upstream/main` → `merge/upstream-20261028` (Basis `feat/pinned-sidebar-workspace`):
   **keine Textkonflikte**. Überlappende Dateien (sidebar.rs, sidebar/render.rs,
   config/tests.rs, sidebar/layout_tests.rs, config-gpui.example.toml) automatisch zusammengeführt.
-- [ ] Release-Build (`just bundle` → `target/release/Herdr.app`)
+- [x] Release-Build `PATH=/opt/homebrew/opt/rustup/bin:$PATH just bundle` → `target/release/Herdr.app`:
+  grün (5:28 min, nur Future-Incompat-Warnung `block v0.1.6`). Hinweis: Homebrew-rustup legt
+  `cargo` nicht in `/opt/homebrew/bin`, daher der PATH-Zusatz.
 - [ ] Tests (pinned-workspace-Tests, Workspace-Tests)
 - [ ] Push
 
