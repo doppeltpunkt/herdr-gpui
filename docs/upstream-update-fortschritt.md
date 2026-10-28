@@ -56,3 +56,4 @@ laufen weiter. Zurück: dieselben Schritte mit dem Backup.
 - SSH: PRs/Issues auf SSH-Hosts (#839), mise-installiertes Herdr finden (#840)
 - Updater zeigt Notes aller Releases seit installierter Version (#832); Review merkt „viewed“ (#834)
 - Fixes: Diktat-Tools fügen Text ins Terminal ein (#841), große Bilder per Cmd-V (#818), herdr-acp/herdr-automate in Release-Paketen (#817, #822)
+- `feat/pinned-sidebar-workspace` per Fast-Forward auf den Upstream-Merge 68052054 gebracht und gepusht (vorher f4aae577)
