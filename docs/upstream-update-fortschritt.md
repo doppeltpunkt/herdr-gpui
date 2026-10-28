@@ -23,8 +23,31 @@ Laufend geführt. Branch: `merge/upstream-20261028`.
 - [x] Release-Build `PATH=/opt/homebrew/opt/rustup/bin:$PATH just bundle` → `target/release/Herdr.app`:
   grün (5:28 min, nur Future-Incompat-Warnung `block v0.1.6`). Hinweis: Homebrew-rustup legt
   `cargo` nicht in `/opt/homebrew/bin`, daher der PATH-Zusatz.
-- [ ] Tests (pinned-workspace-Tests, Workspace-Tests)
-- [ ] Push
+- [x] `cargo test -p herdr-gpui pinned`: 10/10 ok (3 pinned-workspace + 7 sticky-host).
+- [x] `just ci` auf `08f80970` (macOS arm64, Code = Merge-Commit `68052054`): grün, 20:29 min.
+  14 350 Tests bestanden, 0 fehlgeschlagen, 54 ignoriert (live/native, opt-in). fmt, clippy
+  (default + no-default-features), file-size, keep-sorted bestanden.
+  Nicht gelaufen: `lint-linux`, `lint-windows`, native GUI-Tests (`test-gui`, `test-sidebar`).
+- [x] Push `merge/upstream-20261028` auf origin; Fork-`main` per Fast-Forward auf `upstream/main`.
+
+## Installation (NICHT ausgeführt — läuft erst nach Freigabe)
+Neue App: `~/git-applications/herdr-gpui/target/release/Herdr.app`
+(`Contents/MacOS/Herdr` + `herdr-acp`, `herdr-automate`, `herdr-remote-control`).
+
+```sh
+osascript -e 'quit app "Herdr"'
+mv /Applications/Herdr.app ~/.local/share/herdr-backups/Herdr-20261026-pinned.app
+ditto ~/git-applications/herdr-gpui/target/release/Herdr.app /Applications/Herdr.app
+open /Applications/Herdr.app
+```
+Nur die GUI wird beendet. Der Herdr-Daemon (`/opt/homebrew/bin/herdr` 0.9.4) und seine Panes
+laufen weiter. Zurück: dieselben Schritte mit dem Backup.
+
+## Offene Entscheidungen
+- Claude-Work-Usage: gesichert in `wip/claudework-usage-backup`, nicht gemergt. Upstream hat
+  Usage nach `crates/herdr-usage` verschoben → Wiedereinbau = Portierung.
+- `feat/pinned-sidebar-workspace` per Fast-Forward auf `merge/upstream-20261028` nachziehen?
+- Worktree `herdr-work-usage` steht jetzt auf `wip/claudework-usage-backup`; entfernen oder behalten?
 
 ## Neu upstream (Auswahl)
 - Chat: Rich Rendering für ACP/CLI-Sessions (#801), Tab-Titel nach letztem Prompt (#813), Prompt-Verlauf mit ↑/↓ (#814)
