@@ -3,7 +3,9 @@ use herdr_client::protocol::ClientShellSnapshot;
 
 mod api_socket;
 mod chat_link;
+mod new_chat;
 mod projection;
+mod titles;
 
 /// A snapshot with one workspace holding a chat tab and a terminal tab.
 pub(super) fn snapshot(agents: Value) -> ClientShellSnapshot {

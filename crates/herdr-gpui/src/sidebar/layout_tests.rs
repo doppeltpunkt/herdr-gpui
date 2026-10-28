@@ -32,6 +32,8 @@ mod configured_rows;
 mod device_footer;
 #[cfg(test)]
 mod device_footer_setting;
+#[cfg(test)]
+mod device_multi_select;
 #[cfg(all(test, feature = "azure"))]
 mod device_removing;
 #[cfg(test)]
@@ -84,6 +86,8 @@ mod row_drag;
 mod search;
 #[cfg(test)]
 mod selection_scroll;
+#[cfg(test)]
+mod short_list_scroll;
 #[cfg(test)]
 mod sidebar_cache;
 #[cfg(test)]
@@ -457,6 +461,16 @@ pub(crate) const REPO_KEY: &str = if cfg!(windows) {
 };
 
 pub(crate) fn snapshot(workspace_count: usize) -> ClientShellSnapshot {
+    snapshot_with_repo_key(workspace_count, REPO_KEY)
+}
+
+/// SSH fixtures describe the POSIX host, not the platform running the test.
+#[cfg(test)]
+pub(crate) fn ssh_snapshot(workspace_count: usize) -> ClientShellSnapshot {
+    snapshot_with_repo_key(workspace_count, "/fixture/agent-launcher/.git")
+}
+
+fn snapshot_with_repo_key(workspace_count: usize, repo_key: &str) -> ClientShellSnapshot {
     serde_json::from_value(serde_json::json!({
         "boot_id": "layout-test", "revision": 1,
         "update_install_command": "", "latest_release_notes_available": false,
@@ -473,13 +487,13 @@ pub(crate) fn snapshot(workspace_count: usize) -> ClientShellSnapshot {
         "workspaces": (0..workspace_count).map(|i| serde_json::json!({
             "workspace_id": format!("w{i}"), "active_tab_id": "t0",
             // The main checkout's shell stands in its repository, as Herdr opens it.
-            "new_workspace_cwd": if i == 3 { REPO_KEY.trim_end_matches("/.git") } else { "/tmp" },
+            "new_workspace_cwd": if i == 3 { repo_key.trim_end_matches("/.git") } else { "/tmp" },
             "number": i + 1,
             "label": match i { 0 => "herdr", 1 => "herdr-gpui-sidebar-rendering-regression-investigation", 3..=5 => "agent-launcher", _ => "another workspace" },
             "custom_label": false,
             "branch": match i { 0 => "main", 2 => "1256789", 3 => "develop", 4 => "worktree/sidebar-child", 5 => "worktree/sidebar-child-with-a-long-readable-branch-name", _ => "fix/sidebar-label-width-and-overflow-regression" },
             "worktree": if (3..=5).contains(&i) { serde_json::json!({
-                "key": REPO_KEY, "label": "agent-launcher", "is_linked_worktree": i != 3
+                "key": repo_key, "label": "agent-launcher", "is_linked_worktree": i != 3
             }) } else { serde_json::Value::Null },
             "tokens": [], "focused": i == 0, "agent_status": "working"
         })).collect::<Vec<_>>(),
@@ -574,6 +588,7 @@ pub(crate) fn fixture_window(window: &mut Window, cx: &mut Context<HerdrWindow>)
         copy_mode: None,
         find_memory: Default::default(),
         flash: None,
+        flash_motion: Default::default(),
         configured_terminal_size: crate::config::Config::default().terminal.size,
         gui_config_diagnostic: Default::default(),
         icon_font_notice: Default::default(),
@@ -635,7 +650,7 @@ pub(crate) fn fixture_window(window: &mut Window, cx: &mut Context<HerdrWindow>)
         sidebar_start_pending: true,
         status_bar_visible: true,
         zen: Default::default(),
-        device_filter: None,
+        device_filter: Default::default(),
         endpoints: vec![crate::endpoint::Endpoint::new(
             crate::endpoint::LOCAL.into(),
             "Local".into(),
@@ -654,6 +669,7 @@ pub(crate) fn fixture_window(window: &mut Window, cx: &mut Context<HerdrWindow>)
         arrival: None,
         strip_navigation_fits: true,
         pending_toast: None,
+        toast_motion: Default::default(),
         toasts_hidden: false,
         pending_releases: Vec::new(),
         selected_generation: 0,
@@ -737,6 +753,7 @@ pub(crate) fn fixture_window(window: &mut Window, cx: &mut Context<HerdrWindow>)
         sidebar_nested_reveal: Default::default(),
         sidebar_folded: Default::default(),
         sidebar_search: crate::sidebar::SidebarSearch::new(cx),
+        sidebar_slide: Default::default(),
         _poll: Task::ready(()),
         _activation: cx.observe_window_activation(window, |_, _, _| {}),
         _window_closed: HerdrWindow::give_back_torn_tabs(cx),

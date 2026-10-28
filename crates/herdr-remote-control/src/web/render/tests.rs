@@ -10,14 +10,19 @@ use std::collections::HashMap;
 
 mod ansi;
 mod chat_view;
+mod composer;
+mod empty_chat;
 mod icons;
 mod lists;
 mod markup;
+mod notices;
 mod picker;
 mod preview;
 mod search;
 mod settings;
+mod terminal_paste;
 mod terminal_view;
+mod turn_patch;
 
 pub(super) fn row(pane: &str) -> ChatRow {
     ChatRow {

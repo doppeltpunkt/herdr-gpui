@@ -278,9 +278,9 @@ The change applies live; `config get focus_follows_mouse` reads it back.
 
 | Command | What it does |
 | --- | --- |
-| `remote [status]` | Whether remote control is on and its daemon runs: its port, version, the addresses it serves, its certificate authority fingerprint, and paired and connected devices |
+| `remote [status]` | Whether remote control is on and its daemon runs: its port, version, the addresses it serves with network labels and daemon-host interface names, its certificate authority fingerprint, and paired and connected devices. JSON includes optional `status.address_details` keyed by origin; older daemons omit it |
 | `remote devices` | The paired devices with their IDs, when each was last seen, and whether it gets notifications. Exits 4 when there are none |
-| `remote pair` | Open the pairing dialog in the window. The QR and its token show only there, and the user approves the phone there |
+| `remote pair [--address HTTPS_ORIGIN]` | Open the pairing dialog, preferring Tailscale by default. Choose an address in the dialog, or pass an exact origin from `remote status` (for example `https://100.101.102.103:7443`). The QR and its token show only there, and the user approves the phone there. An unavailable address is reported in the dialog |
 | `remote restart` | Restart the daemon from the binary beside the app, as after a rebuild or update; phones reconnect on their own. Exits 6 while the service is already changing |
 | `remote revoke DEVICE` | Ask in the window to revoke a paired device, named by its ID from `remote devices` or its name (a name two devices share is refused); the user confirms there |
 
@@ -402,6 +402,11 @@ Native chat views are opt-in: turn on **ACP chats** in Settings > General
 (`acp_chats = true` under `[features]`). While it is off, chat panes show
 their terminal and `chat new` exits 8.
 
+Set the reading width with `herdr-gpui config set chat.max_width 1200`, or use
+`0` for the full available width. Bounded widths range from 320 to 4000 logical
+pixels; the default is 800. Settings > General offers the same width slider and
+**Full-width chat** switch.
+
 A chat on an SSH host shows in the native chat view like a local one. Herdr UI
 runs `herdr-acp connect ID` on the host over the same SSH connection it uses
 for Herdr, and the program there sees an ordinary client on its own socket.
@@ -420,3 +425,11 @@ download first is left out.
 Files dropped on a remote chat are copied to the host first, into private
 temporary files under its `${TMPDIR:-/tmp}`, and the copies are attached.
 
+### Existing agent rendering
+
+Set `chat.render_existing = true` along with `features.acp_chats = true` to
+render existing Linux Codex/Claude conversations automatically. The original
+terminal input remains interactive in the same pane. `chat status --json`
+reports `input_mode` (`chat`, `terminal`, or `read_only`) and `session_id`;
+`blocked` status means the running agent needs input. `chat show/hide/toggle`
+still switches the pane presentation, without starting or stopping its agent.

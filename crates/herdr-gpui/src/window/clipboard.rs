@@ -199,7 +199,9 @@ mod linux {
                         &["--no-newline", "--type", mime][..],
                     ),
                     (
-                        x11,
+                        // XWayland may hold a different selection. Never use
+                        // it as a fallback for an empty/unsupported Wayland offer.
+                        x11 && !wayland,
                         "xclip",
                         &["-selection", "clipboard", "-t", mime, "-o"][..],
                     ),
@@ -238,10 +240,16 @@ mod linux {
         if Instant::now() >= deadline {
             return Err(Error::Timeout.into());
         }
-        // A nonblocking socket avoids reader threads that can outlive a timed-out
-        // child when a descendant inherits stdout. Never merge stderr into images.
+        // A short read timeout avoids reader threads that can outlive a
+        // timed-out child when a descendant inherits stdout. It blocks until
+        // output arrives, where sleeping between reads of a small socket
+        // buffer paced a large image past the deadline. Set it before the
+        // child can exit: macOS refuses socket options once the peer closed.
+        // Never merge stderr into images.
         let (mut reader, writer) = UnixStream::pair().map_err(Error::Process)?;
-        reader.set_nonblocking(true).map_err(Error::Process)?;
+        reader
+            .set_read_timeout(Some(Duration::from_millis(50)))
+            .map_err(Error::Process)?;
         let spawned = command
             .stdin(Stdio::null())
             .stdout(Stdio::from(OwnedFd::from(writer)))
@@ -250,37 +258,41 @@ mod linux {
         command.stdout(Stdio::null());
         let mut child = match spawned {
             Ok(child) => child,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(error) => {
                 return Err(Error::Process(error).into());
             }
         };
         let result: std::result::Result<_, Error> = (|| {
             let mut bytes = Vec::new();
-            let mut buffer = [0; 8192];
+            let mut buffer = vec![0; 64 * 1024];
             let mut eof = false;
             loop {
                 if Instant::now() >= deadline {
                     return Err(Error::Timeout);
                 }
-                match reader.read(&mut buffer) {
-                    Ok(0) => eof = true,
-                    Ok(count) => {
-                        if count > limit - bytes.len() {
-                            return Err(Error::Size { limit });
+                if !eof {
+                    match reader.read(&mut buffer) {
+                        Ok(0) => eof = true,
+                        Ok(count) => {
+                            if count > limit - bytes.len() {
+                                return Err(Error::Size { limit });
+                            }
+                            bytes.extend_from_slice(&buffer[..count]);
                         }
-                        bytes.extend_from_slice(&buffer[..count]);
-                        continue;
+                        Err(error)
+                            if matches!(
+                                error.kind(),
+                                io::ErrorKind::WouldBlock
+                                    | io::ErrorKind::TimedOut
+                                    | io::ErrorKind::Interrupted
+                            ) => {}
+                        Err(error) => {
+                            return Err(Error::Process(error));
+                        }
                     }
-                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {}
-                    Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
-                    Err(error) => {
-                        return Err(Error::Process(error));
-                    }
+                    continue;
                 }
-                if let Some(status) = child.try_wait().map_err(Error::Process)?
-                    && eof
-                {
+                if let Some(status) = child.try_wait().map_err(Error::Process)? {
                     return Ok(status.success().then_some(bytes));
                 }
                 thread::sleep(Duration::from_millis(5));
@@ -299,6 +311,8 @@ mod linux {
     mod tests {
         use super::*;
 
+        mod current_selection;
+
         #[test]
         fn commands_preserve_text_and_skip_image_requests() -> Result<()> {
             let item = read_commands(false, true, true, |program, args, limit, _| {
@@ -312,10 +326,27 @@ mod linux {
         }
 
         #[test]
+        fn large_output_arrives_before_the_deadline() -> Result<()> {
+            // A socket pair holds a few kilobytes; sleeping between reads
+            // took far longer than the deadline for an image this size.
+            const SIZE: usize = 26 * 1024 * 1024;
+            let started = Instant::now();
+            let deadline = started + Duration::from_secs(3);
+            let bytes = output(
+                Command::new("/bin/sh").args(["-c", &format!("head -c {SIZE} /dev/zero")]),
+                IMAGE_LIMIT,
+                deadline,
+            )?;
+            assert_eq!(bytes.map(|bytes| bytes.len()), Some(SIZE));
+            assert!(Instant::now() < deadline);
+            Ok(())
+        }
+
+        #[test]
         fn image_commands_fall_back_and_reject_text_from_image_targets() -> Result<()> {
             let mut calls = Vec::new();
             let mut first_deadline = None;
-            let item = read_commands(true, true, true, |program, args, limit, deadline| {
+            let item = read_commands(true, false, true, |program, args, limit, deadline| {
                 assert_eq!(limit, IMAGE_LIMIT);
                 assert_eq!(*first_deadline.get_or_insert(deadline), deadline);
                 calls.push(program.to_owned());
@@ -325,12 +356,7 @@ mod linux {
                     Ok(Some(b"not an image".to_vec()))
                 }
             })?;
-            assert_eq!(
-                calls,
-                [
-                    "wl-paste", "xclip", "wl-paste", "xclip", "wl-paste", "xclip"
-                ]
-            );
+            assert_eq!(calls, ["xclip", "xclip", "xclip"]);
             assert!(matches!(item.as_ref().map(|item| item.entries()),
                 Some([gpui::ClipboardEntry::Image(image)]) if image.format == ImageFormat::Jpeg));
             assert!(
@@ -358,14 +384,15 @@ mod linux {
             ));
             assert!(run("printf partial; exit 1", 16)?.is_none());
             assert_eq!(run("exit 0", 0)?, Some(Vec::new()));
-            assert!(
+            assert!(matches!(
                 output(
                     &mut Command::new("/nonexistent/herdr-clipboard-helper"),
                     4,
                     Instant::now() + Duration::from_secs(3)
-                )?
-                .is_none()
-            );
+                ),
+                Err(crate::Error::Clipboard(Error::Process(error)))
+                    if error.kind() == io::ErrorKind::NotFound
+            ));
             Ok(())
         }
 

@@ -14,6 +14,10 @@ use std::{
     },
 };
 
+mod addresses;
+mod keyboard;
+mod networks;
+
 fn on() -> RemoteConfig {
     RemoteConfig {
         enabled: true,
@@ -23,6 +27,7 @@ fn on() -> RemoteConfig {
 
 fn offer() -> Offer {
     Offer {
+        address_details: Default::default(),
         id: PairingId("p1".into()),
         url: "https://192.168.1.20:7443/pair#t=TOKEN&fp=5F:2A".into(),
         fingerprint: "5F:2A:C1:9E".into(),
@@ -117,6 +122,7 @@ fn pairing_daemon(_: &Path, request: &Request) -> Result<Response, control::Erro
             Response::Pairing(PairingState::Claimed {
                 device_name: "Pixel\u{202e}".into(),
                 code: "428913".into(),
+                app: Some("https://other.example:8443".into()),
             })
         }
         Request::Pairing { .. } => Response::Pairing(PairingState::Waiting {
@@ -151,6 +157,8 @@ fn a_phone_scans_claims_and_is_allowed(cx: &mut TestAppContext) {
     assert_eq!(spaced(&code), "428 913");
     draw(cx);
     assert!(cx.debug_bounds("remote-pair-code").is_some());
+    // Another computer's app asked, and the dialog names it.
+    assert!(cx.debug_bounds("remote-pair-app").is_some());
     assert!(cx.debug_bounds("remote-pair-qr").is_none());
     let allow = cx.debug_bounds("remote-pair-allow").unwrap().center();
     cx.simulate_click(allow, Modifiers::default());

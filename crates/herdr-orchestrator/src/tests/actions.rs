@@ -12,6 +12,7 @@ mod agent_name;
 mod parent;
 mod remove;
 mod startup;
+mod titles;
 
 /// `tests/support/fake_herdr.rs`, compiled once per test process: a program
 /// rather than a script, so the dispatch tests run on every client platform.
@@ -23,6 +24,14 @@ fn fake_herdr() -> &'static Path {
         std::fs::create_dir_all(&dir).unwrap();
         let program = dir.join(format!("herdr{}", std::env::consts::EXE_SUFFIX));
         let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/support/fake_herdr.rs");
+        // An earlier process with this ID left its program here. Rewriting
+        // it in place keeps that inode's cached code signature on macOS,
+        // which then kills the new program (signal 9); a new file has none.
+        match std::fs::remove_file(&program) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => panic!("removing {}: {error}", program.display()),
+        }
         // `rustc` writes the program, so this process never holds it open for
         // writing while a sibling test forks (Linux would refuse to run it).
         let status = Command::new(std::env::var_os("RUSTC").unwrap_or_else(|| "rustc".into()))
@@ -133,6 +142,7 @@ fn request() -> DispatchRequest {
         kind: AgentKind::Claude,
         model: None,
         prompt: "Fix the icons; don't break 'quotes'.".into(),
+        title: "#377 Fix the icons".into(),
         branch: "377-icons".into(),
         workspace_id: "w1".into(),
         base: None,
@@ -173,8 +183,8 @@ fn dispatch_creates_the_worktree_starts_the_agent_and_records_the_run() {
         format!("agent start {name} --kind claude --pane p9 --timeout 90000")
     );
     assert_eq!(
-        calls[3],
-        "agent prompt p9 Fix the icons; don't break 'quotes'."
+        calls.last().map(String::as_str),
+        Some("agent prompt p9 Fix the icons; don't break 'quotes'.")
     );
 
     let store = Store::open(&site.database).unwrap();

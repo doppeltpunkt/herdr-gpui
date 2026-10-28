@@ -16,6 +16,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+mod addresses;
+
 /// How often the dialog looks for a request to send, and redraws its ring.
 const STEP: Duration = Duration::from_millis(250);
 /// The QR's side.
@@ -29,14 +31,23 @@ const NAME_LIMIT: usize = 64;
 /// a pairing still open at the daemon, so its token stops working at once.
 pub(crate) struct PairingDialog {
     pub(crate) pairing: Pairing,
+    addresses_scroll: ScrollHandle,
+    other_addresses: crate::motion::Toggle,
     client: Option<Client>,
+    _addresses_task: Option<Task<()>>,
     _lease: Option<Lease>,
     _task: Option<Task<()>>,
 }
 
-impl Drop for PairingDialog {
-    fn drop(&mut self) {
-        if let (Some(client), Some(id)) = (&self.client, self.pairing.id())
+impl PairingDialog {
+    /// Cancels a pairing still open at the daemon, as closing the dialog
+    /// does. The dialog may still be drawn as it goes; it asks nothing more,
+    /// and no longer keeps the daemon polled at the open dialog's pace.
+    pub(crate) fn close(&mut self) {
+        self._lease = None;
+        self._task = None;
+        self._addresses_task = None;
+        if let (Some(client), Some(id)) = (self.client.take(), self.pairing.id())
             && self.pairing.cancels_on_close()
         {
             client.notify(Request::CancelPairing { id: id.clone() });
@@ -44,10 +55,25 @@ impl Drop for PairingDialog {
     }
 }
 
+impl Drop for PairingDialog {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
 impl HerdrWindow {
     /// Opens the pairing dialog, unless another page holds the window.
     pub(crate) fn open_remote_pairing(
         &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        self.open_remote_pairing_at(None, window, cx)
+    }
+
+    pub(crate) fn open_remote_pairing_at(
+        &mut self,
+        address: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
@@ -65,8 +91,11 @@ impl HerdrWindow {
             .filter(|_| self.config.remote.enabled)
             .map(|client| Self::drive_pairing(client, cx));
         self.menu.remote_pairing = Some(PairingDialog {
-            pairing,
+            pairing: pairing.with_address(address),
+            addresses_scroll: ScrollHandle::new(),
+            other_addresses: crate::motion::Toggle::default(),
             client,
+            _addresses_task: None,
             _lease: Supervisor::lease(cx),
             _task: task,
         });
@@ -102,7 +131,14 @@ impl HerdrWindow {
                     let Some(dialog) = view.menu.remote_pairing.as_mut() else {
                         return false;
                     };
+                    let new_offer = matches!(
+                        &result,
+                        Ok(herdr_remote_control::control::Response::Offer(_))
+                    );
                     dialog.pairing.receive(&ticket, result, Instant::now());
+                    if new_offer {
+                        dialog.reveal_selected_address();
+                    }
                     if matches!(dialog.pairing.phase(), Phase::Approved { .. }) {
                         Supervisor::refresh(cx);
                     }
@@ -128,6 +164,64 @@ impl HerdrWindow {
             dialog.pairing.restart();
             cx.notify();
         }
+    }
+
+    pub(crate) fn remote_pairing_key(
+        &mut self,
+        event: &KeyDownEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.stop_propagation();
+        window.prevent_default();
+        if event.keystroke.modifiers != Modifiers::default() {
+            return;
+        }
+        let key = event.keystroke.key.as_str();
+        if key == "escape" {
+            self.dismiss_menu(window, cx);
+            return;
+        }
+        let Some(dialog) = &self.menu.remote_pairing else {
+            return;
+        };
+        let Phase::Showing { offer, .. } = dialog.pairing.phase() else {
+            return;
+        };
+        let count = offer.addresses.len();
+        if count == 0 {
+            return;
+        }
+        let selected = offer
+            .addresses
+            .iter()
+            .position(|address| offer.url.starts_with(&format!("{address}/")))
+            .unwrap_or(0);
+        let index = match key {
+            "up" => (selected + count - 1) % count,
+            "down" => (selected + 1) % count,
+            "home" => 0,
+            "end" => count - 1,
+            "right" | "left" => {
+                self.set_other_addresses(key == "right", cx);
+                return;
+            }
+            _ => return,
+        };
+        let address = offer.addresses[index].clone();
+        self.select_pairing_address(&address, cx);
+    }
+
+    fn select_pairing_address(&mut self, address: &str, cx: &mut Context<Self>) {
+        let Some(dialog) = &mut self.menu.remote_pairing else {
+            return;
+        };
+        if let Err(error) = dialog.pairing.select_address(address) {
+            tracing::warn!(%error, "Could not select pairing address");
+            return;
+        }
+        dialog.reveal_selected_address();
+        cx.notify();
     }
 
     /// Whether a remote control dialog is open, for the menu's layout.
@@ -164,9 +258,10 @@ impl HerdrWindow {
             Phase::Claimed {
                 device_name,
                 code,
+                app,
                 answer,
                 ..
-            } => self.pairing_claim(device_name, code, *answer, cx),
+            } => self.pairing_claim(device_name, code, app.as_deref(), *answer, cx),
             Phase::Approved { device_name } => self.pairing_message(
                 &format!("{} can now control your chats.", name(device_name)),
                 "Revoke it any time in Settings > Remote control.",
@@ -221,7 +316,7 @@ impl HerdrWindow {
                             .hover(|button| button.bg(rgb(theme.active)))
                             .child(
                                 svg()
-                                    .path("icons/x.svg")
+                                    .path("icons/close.svg")
                                     .size(px(12.))
                                     .text_color(rgb(theme.subtext())),
                             )
@@ -236,7 +331,7 @@ impl HerdrWindow {
 
     /// The QR with what the phone needs beside it; a placeholder square
     /// until the daemon has answered.
-    fn pairing_offer(&self, pairing: Option<&Pairing>, _cx: &mut Context<Self>) -> Div {
+    fn pairing_offer(&self, pairing: Option<&Pairing>, cx: &mut Context<Self>) -> Div {
         let theme = &self.theme;
         let showing = pairing.and_then(|pairing| match pairing.phase() {
             Phase::Showing { offer, qr, .. } => Some((offer, qr.clone())),
@@ -261,23 +356,10 @@ impl HerdrWindow {
                         .font_weight(FontWeight::SEMIBOLD)
                         .child("Scan with your phone's camera"),
                 )
-                .child(
-                    div()
-                        .debug_selector(|| "remote-pair-addresses".into())
-                        .text_color(rgb(theme.subtext()))
-                        .child(addresses(&offer.addresses)),
-                )
-                .child(
-                    div()
-                        .debug_selector(|| "remote-pair-fingerprint".into())
-                        .text_font(&self.config.terminal)
-                        .text_size(px(10.))
-                        .text_color(rgb(theme.subtext()))
-                        .child(format!(
-                            "CA {}",
-                            crate::notifications::safe_text(&offer.fingerprint, 200)
-                        )),
-                )
+                .child(div().text_color(rgb(theme.subtext())).child(
+                    "Choose how your phone reaches this computer. Up/Down changes the QR address.",
+                ))
+                .child(self.pairing_selected_address(offer))
                 .children(countdown.map(|(left, share)| {
                     div()
                         .debug_selector(|| "remote-pair-countdown".into())
@@ -297,16 +379,36 @@ impl HerdrWindow {
         };
         div()
             .flex()
-            .gap(px(16.))
-            .items_start()
-            .child(div().flex_none().child(square))
-            .child(div().flex_1().min_w_0().child(details))
+            .flex_col()
+            .gap(px(12.))
+            .child(
+                div()
+                    .flex()
+                    .gap(px(16.))
+                    .items_start()
+                    .child(div().flex_none().child(square))
+                    .child(div().flex_1().min_w_0().child(details)),
+            )
+            .when_some(showing, |body, (offer, _)| {
+                body.child(self.pairing_addresses(offer, cx)).child(
+                    div()
+                        .debug_selector(|| "remote-pair-fingerprint".into())
+                        .text_font(&self.config.terminal)
+                        .text_size(px(10.))
+                        .text_color(rgb(theme.subtext()))
+                        .child(format!(
+                            "CA {}",
+                            crate::notifications::safe_text(&offer.fingerprint, 200)
+                        )),
+                )
+            })
     }
 
     fn pairing_claim(
         &self,
         device_name: &str,
         code: &str,
+        app: Option<&str>,
         answer: Option<Answer>,
         cx: &mut Context<Self>,
     ) -> Div {
@@ -330,6 +432,19 @@ impl HerdrWindow {
                     )
                     .child("wants remote control of your chats."),
             )
+            // Approving admits this origin to the daemon's API, so the user
+            // sees which app asked: one installed from another computer.
+            .when_some(app, |claim, app| {
+                claim.child(
+                    div()
+                        .debug_selector(|| "remote-pair-app".into())
+                        .text_color(rgb(theme.subtext()))
+                        .child(format!(
+                            "It asks from the Herdr app at {}. Allow it only if you are adding this computer to that app.",
+                            crate::notifications::safe_text(app, 255)
+                        )),
+                )
+            })
             .child(
                 div()
                     .text_color(rgb(theme.subtext()))

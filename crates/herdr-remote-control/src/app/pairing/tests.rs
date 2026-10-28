@@ -1,8 +1,11 @@
 use super::*;
 use crate::control::DeviceId;
 
+mod addresses;
+
 fn offer(id: &str) -> Offer {
     Offer {
+        address_details: Default::default(),
         id: PairingId(id.into()),
         url: format!("https://192.168.1.20:7443/pair#t={id}&fp=5F:2A"),
         fingerprint: "5F:2A".into(),
@@ -120,6 +123,7 @@ fn a_claim_asks_the_user_and_allow_waits_for_approval() {
         Ok(Response::Pairing(PairingState::Claimed {
             device_name: "Fabien's iPhone".into(),
             code: "428913".into(),
+            app: None,
         })),
     );
     let Phase::Claimed {
@@ -146,6 +150,7 @@ fn a_claim_asks_the_user_and_allow_waits_for_approval() {
             Ok(Response::Pairing(PairingState::Claimed {
                 device_name: "Fabien's iPhone".into(),
                 code: "428913".into(),
+                app: None,
             })),
         ),
         Request::Approve {
@@ -192,6 +197,7 @@ fn deny_ends_the_pairing() {
         Ok(Response::Pairing(PairingState::Claimed {
             device_name: "Pixel".into(),
             code: "000111".into(),
+            app: None,
         })),
     );
     pairing.answer(false);
@@ -221,6 +227,7 @@ fn a_claim_left_unanswered_expires_and_can_start_over() {
         Ok(Response::Pairing(PairingState::Claimed {
             device_name: "Pixel".into(),
             code: "000111".into(),
+            app: None,
         })),
     );
     step(
@@ -252,6 +259,7 @@ fn an_answer_to_a_request_sent_before_a_change_is_dropped() {
         Ok(Response::Pairing(PairingState::Claimed {
             device_name: "Pixel".into(),
             code: "000111".into(),
+            app: None,
         })),
     );
     let stale = pairing.next(now + POLL * 2).unwrap();
@@ -291,6 +299,7 @@ fn allow_shows_the_approval_the_daemon_answers_with() {
         Ok(Response::Pairing(PairingState::Claimed {
             device_name: "Pixel".into(),
             code: "000111".into(),
+            app: None,
         })),
     );
     pairing.answer(true);
@@ -315,6 +324,7 @@ fn allow_shows_the_approval_the_daemon_answers_with() {
         Ok(Response::Pairing(PairingState::Claimed {
             device_name: "Pixel".into(),
             code: "000111".into(),
+            app: None,
         })),
     );
     pairing.answer(true);

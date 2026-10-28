@@ -98,6 +98,8 @@ impl Render for HerdrWindow {
         self.leave_vanished_region(window, cx);
         self.sync_backdrop(window, cx);
         self.tick_chrome(window, cx);
+        self.tick_menu_appear(window);
+        self.tick_sidebar_slide(window, cx);
         if self
             .chats
             .glide(crate::motion::now(), self.config.chat.glide)
@@ -328,33 +330,8 @@ impl Render for HerdrWindow {
                 terminal.bg(fill.base(self.terminal_theme().background))
             })
             .children(self.terminal_ground(fill.base(self.terminal_theme().background)))
-            .track_focus(&self.focus)
-            // Screen readers and selection tools read the rows on screen and
-            // the selection among them. The rows are built while GPUI
-            // prepaints, and only while an assistive client is listening.
-            .role(Role::Terminal)
-            .aria_label("Terminal")
-            .when(
-                window.is_a11y_active() && self.live.surface_ready(),
-                |terminal| {
-                    let surface = self.live.surface.clone();
-                    let selection = self.selection.clone();
-                    let cell_width = self.cell_width;
-                    let cell_height = self.config.terminal.line_height();
-                    let origin = (
-                        f32::from(self.bounds.origin.x),
-                        f32::from(self.bounds.origin.y),
-                    );
-                    let scale = window.scale_factor();
-                    terminal.a11y_synthetic_children(move |builder| {
-                        if let Some(transcript) = surface.as_deref().and_then(|surface| {
-                            Transcript::read(surface, selection.as_ref(), cell_width, cell_height)
-                        }) {
-                            transcript.expose(builder, origin, scale);
-                        }
-                    })
-                },
-            )
+            .map(|terminal| self.accessible_terminal(terminal, window, cx))
+            .capture_key_down(cx.listener(Self::chat_zoom_key))
             .on_key_down(cx.listener(Self::key_down))
             .on_key_up(cx.listener(Self::key_up))
             // The terminal has nothing for Cut to act on, and Copy only while
@@ -665,15 +642,18 @@ impl Render for HerdrWindow {
                     .when_some(copy_badge, |terminal, badge| terminal.child(badge))
                     // Direct feedback for the user's own gesture, not a daemon notice:
                     // it sits over the cells it copied and needs no dismissing.
-                    .when_some(self.flash.as_ref(), |terminal, (flash, _)| {
+                    .when_some(self.flash_shown(), |terminal, (flash, shown)| {
                         use ClipboardToastPosition::*;
                         let position = self.config.clipboard_toast.position;
+                        // It comes in from the edge it sits by and goes back to it.
+                        let edge = px(12. - (1. - shown) * super::flash::SLIDE);
                         terminal.child(
                             div()
                                 .absolute()
+                                .opacity(shown)
                                 .map(|row| match position {
-                                    TopLeft | TopCenter | TopRight => row.top(px(12.)),
-                                    BottomLeft | BottomCenter | BottomRight => row.bottom(px(12.)),
+                                    TopLeft | TopCenter | TopRight => row.top(edge),
+                                    BottomLeft | BottomCenter | BottomRight => row.bottom(edge),
                                 })
                                 .map(|row| match position {
                                     TopLeft | BottomLeft => row.justify_start(),
@@ -795,6 +775,7 @@ impl Render for HerdrWindow {
             | self.tabs_growing()
             | self.annotations_moving()
             | self.chrome_sliding()
+            | self.flash_moving()
         {
             window.request_animation_frame();
         }
@@ -968,6 +949,7 @@ impl Render for HerdrWindow {
             .children(self.render_tab_ghost(cx))
             .children(self.render_toasts(window, cx))
             .children(self.render_file_transfer(window, cx))
+            .children(self.render_menu_leaving(window, cx))
             .when(self.menu.page.is_some(), |root| {
                 root.child(self.render_menu(window, cx))
             });

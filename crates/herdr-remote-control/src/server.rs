@@ -2,6 +2,7 @@
 //! devices, VAPID key), connects to the local Herdr daemon, and serves the
 //! web app over HTTPS until Herdr UI asks it to stop.
 
+mod addresses;
 mod control;
 mod listener;
 mod live;
@@ -85,6 +86,7 @@ pub async fn run(options: Options) -> Result<()> {
         .and_then(|vapid| Sender::new(vapid, PUSH_SUBJECT))
         .ok();
     let auth = Auth::load(&options.state_dir, Limits::default())?;
+    let apps = auth.apps();
     let apns = crate::apns::Sender::load(&options.state_dir)?;
     // Only origins this computer's own authority serves may be remembered.
     let seen = match &authority {
@@ -92,8 +94,10 @@ pub async fn run(options: Options) -> Result<()> {
         None => web::Origins::none(),
     };
     let hub = Hub::start(options.herdr_socket.clone(), options.chat_dir.clone())?;
+    let (pull_requests, _) = watch::channel(Arc::new(Default::default()));
     let state = Arc::new(State {
         apns,
+        apps,
         auth: Mutex::new(auth),
         authority,
         computer: options::computer_name(),
@@ -104,6 +108,7 @@ pub async fn run(options: Options) -> Result<()> {
         names: RwLock::new(names),
         port: options.port,
         privacy: options.privacy,
+        pull_requests,
         push,
         reports: Mutex::new(web::report_limit()),
         seen: Mutex::new(seen),
@@ -128,12 +133,12 @@ pub async fn run(options: Options) -> Result<()> {
     // A user's certificate lists fixed names; only the daemon's own follows
     // the computer's addresses.
     if state.authority.is_some() {
-        tokio::spawn(watch_addresses(state.clone(), resolver, bind));
+        tokio::spawn(watch_addresses(state.clone(), resolver.clone(), bind));
     }
     tokio::spawn(expire(state.clone(), options.device_idle));
     let app = web::router(state).into_make_service_with_connect_info::<web::Peer>();
     let mut shutdown = stopped.clone();
-    let serve = axum::serve(listener::TlsListener::new(tcp, config), app)
+    let serve = axum::serve(listener::TlsListener::new(tcp, config, resolver), app)
         .with_graceful_shutdown(async move {
             let _ = shutdown.wait_for(|stop| *stop).await;
         })
@@ -160,7 +165,7 @@ async fn until_stopped(
     }
 }
 
-/// Reissues the certificate when the computer's addresses change.
+/// Adds certificates for new addresses and renews existing ones independently.
 async fn watch_addresses(state: Arc<State>, resolver: Arc<Resolver>, bind: IpAddr) {
     let mut ticker = tokio::time::interval(ADDRESS_CHECK);
     loop {
@@ -169,11 +174,17 @@ async fn watch_addresses(state: Arc<State>, resolver: Arc<Resolver>, bind: IpAdd
         else {
             continue;
         };
-        if let Some(authority) = &state.authority
-            && resolver
-                .refresh(authority, &names, SystemTime::now())
-                .is_err()
-        {
+        let (refresh_state, refresh_resolver, refresh_names) =
+            (state.clone(), resolver.clone(), names.clone());
+        let refreshed = tokio::task::spawn_blocking(move || match &refresh_state.authority {
+            Some(authority) => refresh_resolver
+                .refresh(authority, &refresh_names, SystemTime::now())
+                .map(|_| ()),
+            None => Ok(()),
+        })
+        .await;
+        if !matches!(refreshed, Ok(Ok(()))) {
+            tracing::warn!(error = ?refreshed, "Could not refresh remote certificates; keeping the current addresses");
             continue;
         }
         if let Ok(mut current) = state.names.write() {
@@ -195,20 +206,24 @@ fn remember_origins(state: &State) {
         .remember(&origins);
 }
 
-async fn expire(state: Arc<State>, idle: Duration) {
-    let idle_ms = u64::try_from(idle.as_millis()).unwrap_or(u64::MAX);
+async fn expire(state: Arc<State>, idle: Option<Duration>) {
+    let idle_ms = idle.map(|idle| u64::try_from(idle.as_millis()).unwrap_or(u64::MAX));
     let mut ticker = tokio::time::interval(IDLE_CHECK);
     loop {
         ticker.tick().await;
         let state = state.clone();
-        let _ = tokio::task::spawn_blocking(move || {
-            let now = web::now_ms();
-            // Pictures expire on their own schedule, whether or not another
-            // upload comes to sweep them.
-            state.uploads.prune(now);
-            state.auth().expire_idle(now, idle_ms)
-        })
-        .await;
+        let _ = tokio::task::spawn_blocking(move || sweep(&state, web::now_ms(), idle_ms)).await;
+    }
+}
+
+/// One tick of [`expire`]: drops old pictures, and devices away for
+/// `idle_ms`; with no limit, devices stay until revoked. Blocking.
+fn sweep(state: &State, now_ms: u64, idle_ms: Option<u64>) {
+    // Pictures expire on their own schedule, whether or not another
+    // upload comes to sweep them.
+    state.uploads.prune(now_ms);
+    if let Some(idle_ms) = idle_ms {
+        let _ = state.auth().expire_idle(now_ms, idle_ms);
     }
 }
 
